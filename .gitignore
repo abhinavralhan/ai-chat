@@ -3,3 +3,7 @@ __pycache__/
 .env
 data/
 .claude/settings.local.json
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml

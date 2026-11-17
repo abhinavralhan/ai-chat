@@ -8,3 +8,7 @@ services:
       - ./:/app            # live code edits without rebuilding
       - /app/.venv         # keep the host venv out of the container
     working_dir: /app
+    environment:
+      DBT_PROJECT_DIR: /app/dbt
+      DBT_PROFILES_DIR: /app/dbt
+      DUCKDB_PATH: /app/data/warehouse.duckdb

@@ -1,0 +1,10 @@
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: channels
+      - name: campaigns
+      - name: ad_spend
+      - name: sessions
+      - name: customers
+      - name: orders

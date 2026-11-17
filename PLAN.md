@@ -16,7 +16,7 @@
 ## Already done
 
 - `pyproject.toml` and `uv.lock`: Python 3.12 with anthropic, langgraph, dbt-core, dbt-duckdb, dbt-metricflow, duckdb, fastapi, langfuse, pyyaml, typer and rich. Several aren't used yet.
-- `scripts/generate_data.py`: builds `data/warehouse.duckdb` (`raw` schema) with Jan–Jun 2026 data for a fictional running-shoe shop. The output is identical every run (seed 42). Tested on the host, not yet in Docker.
+- `scripts/generate_data.py`: builds `data/warehouse.duckdb` (`raw` schema) with Jan–Jun 2026 data for a fictional running-shoe shop. The output is identical every run (seed 42). Verified on the host and in Docker.
 
   | Table | Rows |
   |---|---|
@@ -32,9 +32,11 @@
   - Organic and direct sessions have no campaign.
   - Ad spend spikes in March (€56k vs about €29k in February) because of a spring sale across 3 channels.
   - Conversion rates differ a lot by channel, from 1.0% (TikTok) to 4.2% (newsletter).
-- `Dockerfile`, `compose.yaml`, `.dockerignore`, `.gitignore`: written, but the container has never been built or run.
+- `Dockerfile`, `compose.yaml`, `.dockerignore`, `.gitignore`: the image builds and runs.
+- Git repo started.
+- Step 1 (dbt models) is done: `docker compose run --rm app dbt build` passes (6 marts in the `marts` schema, 28 tests). Staging models are ephemeral, so the warehouse has only `raw` and `marts`.
 
-**Not set up yet:** git repo, Anthropic API key, Docker verification.
+**Not set up yet:** Anthropic API key (needed from step 4).
 
 To run the data step in Docker:
 

@@ -1,0 +1,11 @@
+name: marketing
+version: "1.0.0"
+profile: marketing
+
+models:
+  marketing:
+    # ephemeral: staging stays out of the warehouse, so the agent only sees raw + marts
+    staging:
+      +materialized: ephemeral
+    marts:
+      +materialized: table
