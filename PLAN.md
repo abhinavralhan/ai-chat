@@ -32,9 +32,12 @@
   - Organic and direct sessions have no campaign.
   - Ad spend spikes in March (€56k vs about €29k in February) because of a spring sale across 3 channels.
   - Conversion rates differ a lot by channel, from 1.0% (TikTok) to 4.2% (newsletter).
+  - One order (TikTok, €48.05) and its new customer fall on 1 July 2026 because the session started late on 30 June. "All revenue" and "revenue in H1" therefore differ, and any grouping by month has a July row.
 - `Dockerfile`, `compose.yaml`, `.dockerignore`, `.gitignore`: the image builds and runs.
 - Git repo started.
 - Step 1 (dbt models) is done: `docker compose run --rm app dbt build` passes (6 marts in the `marts` schema, 28 tests). Staging models are ephemeral, so the warehouse has only `raw` and `marts`.
+- Step 2 (MetricFlow) is done: semantic models and metrics are in `dbt/models/marts/semantic.yml`, and the time spine is `metricflow_time_spine`. `mf validate-configs` passes, and `mf query --metrics roas --group-by metric_time__month,channel__channel_name` matches hand-written SQL on all 43 rows. Run `mf` from `dbt/`: `docker compose run --rm -w /app/dbt app mf ...`.
+  - Metric definitions chosen: "revenue" means net (completed orders only). `average_order_value` = net revenue / completed orders. `conversion_rate` = all orders / sessions. `roas` = net revenue / ad spend. `customer_acquisition_cost` = ad spend / new customers, grouped by acquisition channel (blended overall).
 
 **Not set up yet:** Anthropic API key (needed from step 4).
 

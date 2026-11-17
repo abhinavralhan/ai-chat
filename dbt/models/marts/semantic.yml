@@ -1,0 +1,271 @@
+semantic_models:
+  - name: orders
+    description: One row per order, including refunded and cancelled orders.
+    model: ref('fct_orders')
+    defaults:
+      agg_time_dimension: ordered_at
+    entities:
+      - name: order
+        type: primary
+        expr: order_id
+      - name: customer
+        type: foreign
+        expr: customer_id
+      - name: session
+        type: foreign
+        expr: session_id
+      - name: channel
+        type: foreign
+        expr: channel_id
+      - name: campaign
+        type: foreign
+        expr: campaign_id
+    dimensions:
+      - name: ordered_at
+        type: time
+        type_params:
+          time_granularity: day
+      - name: status
+        type: categorical
+        description: completed, refunded or cancelled.
+    measures:
+      - name: order_count
+        agg: count
+        expr: order_id
+      - name: completed_order_count
+        agg: sum
+        expr: case when status = 'completed' then 1 else 0 end
+      - name: gross_revenue
+        agg: sum
+        expr: gross_revenue_eur
+      - name: net_revenue
+        agg: sum
+        expr: net_revenue_eur
+
+  - name: sessions
+    description: One row per website session. Organic and direct sessions have no campaign.
+    model: ref('fct_sessions')
+    defaults:
+      agg_time_dimension: started_at
+    entities:
+      - name: session
+        type: primary
+        expr: session_id
+      - name: visitor
+        type: foreign
+        expr: visitor_id
+      - name: channel
+        type: foreign
+        expr: channel_id
+      - name: campaign
+        type: foreign
+        expr: campaign_id
+    dimensions:
+      - name: started_at
+        type: time
+        type_params:
+          time_granularity: day
+      - name: device
+        type: categorical
+        description: mobile, desktop or tablet.
+      - name: country
+        type: categorical
+        description: ISO country code of the visitor (DE, AT, CH, NL, FR).
+    measures:
+      - name: session_count
+        agg: count
+        expr: session_id
+
+  - name: ad_spend
+    description: Daily impressions, clicks and spend per paid campaign. Owned and organic channels have no rows.
+    model: ref('fct_ad_spend')
+    defaults:
+      agg_time_dimension: spend_date
+    entities:
+      - name: ad_spend_day
+        type: primary
+        expr: ad_spend_id
+      - name: campaign
+        type: foreign
+        expr: campaign_id
+      - name: channel
+        type: foreign
+        expr: channel_id
+    dimensions:
+      - name: spend_date
+        type: time
+        type_params:
+          time_granularity: day
+    measures:
+      - name: spend
+        agg: sum
+        expr: spend_eur
+      - name: impressions
+        agg: sum
+      - name: clicks
+        agg: sum
+
+  - name: customers
+    description: One row per customer, created at their first order. Channel and campaign are where they were acquired.
+    model: ref('dim_customers')
+    defaults:
+      agg_time_dimension: created_at
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_id
+      # acquisition channel/campaign, so new customers group by the same channel as ad spend
+      - name: channel
+        type: foreign
+        expr: acquisition_channel_id
+      - name: campaign
+        type: foreign
+        expr: acquisition_campaign_id
+    dimensions:
+      - name: created_at
+        type: time
+        type_params:
+          time_granularity: day
+      - name: country
+        type: categorical
+        description: ISO country code of the customer.
+    measures:
+      - name: new_customer_count
+        agg: count
+        expr: customer_id
+
+  - name: channels
+    model: ref('dim_channels')
+    entities:
+      - name: channel
+        type: primary
+        expr: channel_id
+    dimensions:
+      - name: channel_name
+        type: categorical
+      - name: channel_type
+        type: categorical
+        description: paid, owned (newsletter) or organic (organic search, direct).
+
+  - name: campaigns
+    model: ref('dim_campaigns')
+    entities:
+      - name: campaign
+        type: primary
+        expr: campaign_id
+    dimensions:
+      - name: campaign_name
+        type: categorical
+      - name: objective
+        type: categorical
+        description: awareness, conversion or retention.
+
+metrics:
+  - name: orders
+    label: Orders
+    description: All orders placed, including refunded and cancelled ones.
+    type: simple
+    type_params:
+      measure: order_count
+
+  - name: completed_orders
+    label: Completed orders
+    description: Orders with status completed (excludes refunded and cancelled).
+    type: simple
+    type_params:
+      measure: completed_order_count
+
+  - name: gross_revenue
+    label: Gross revenue (EUR)
+    description: Revenue of all orders, including refunded and cancelled. Not the revenue the business keeps.
+    type: simple
+    type_params:
+      measure: gross_revenue
+
+  - name: net_revenue
+    label: Net revenue (EUR)
+    description: Revenue of completed orders only. Use this when someone asks for "revenue" without qualifying it.
+    type: simple
+    type_params:
+      measure: net_revenue
+
+  - name: average_order_value
+    label: Average order value (EUR)
+    description: Net revenue divided by completed orders.
+    type: ratio
+    type_params:
+      numerator: net_revenue
+      denominator: completed_orders
+
+  - name: sessions
+    label: Sessions
+    description: Website sessions.
+    type: simple
+    type_params:
+      measure: session_count
+
+  - name: conversion_rate
+    label: Conversion rate
+    description: Orders (all statuses) divided by sessions, as a fraction (0.03 = 3%).
+    type: ratio
+    type_params:
+      numerator: orders
+      denominator: sessions
+
+  - name: ad_spend
+    label: Ad spend (EUR)
+    description: Paid media spend. Only paid channels have spend.
+    type: simple
+    type_params:
+      measure: spend
+
+  - name: impressions
+    label: Impressions
+    type: simple
+    type_params:
+      measure: impressions
+
+  - name: clicks
+    label: Clicks
+    type: simple
+    type_params:
+      measure: clicks
+
+  - name: cost_per_click
+    label: Cost per click (EUR)
+    description: Ad spend divided by clicks.
+    type: ratio
+    type_params:
+      numerator: ad_spend
+      denominator: clicks
+
+  - name: click_through_rate
+    label: Click-through rate
+    description: Clicks divided by impressions, as a fraction.
+    type: ratio
+    type_params:
+      numerator: clicks
+      denominator: impressions
+
+  - name: roas
+    label: Return on ad spend
+    description: Net revenue divided by ad spend. Empty for channels with no spend (newsletter, organic, direct).
+    type: ratio
+    type_params:
+      numerator: net_revenue
+      denominator: ad_spend
+
+  - name: new_customers
+    label: New customers
+    description: Customers whose first order falls in the period, grouped by the channel that acquired them.
+    type: simple
+    type_params:
+      measure: new_customer_count
+
+  - name: customer_acquisition_cost
+    label: Customer acquisition cost (EUR)
+    description: Ad spend divided by new customers. Overall it is blended (new customers from all channels, including organic).
+    type: ratio
+    type_params:
+      numerator: ad_spend
+      denominator: new_customers
