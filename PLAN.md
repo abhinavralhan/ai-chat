@@ -38,7 +38,8 @@
 - Step 1 (dbt models) is done: `docker compose run --rm app dbt build` passes (6 marts in the `marts` schema, 28 tests). Staging models are ephemeral, so the warehouse has only `raw` and `marts`.
 - Step 2 (MetricFlow) is done: semantic models and metrics are in `dbt/models/marts/semantic.yml`, and the time spine is `metricflow_time_spine`. `mf validate-configs` passes, and `mf query --metrics roas --group-by metric_time__month,channel__channel_name` matches hand-written SQL on all 43 rows. Run `mf` from `dbt/`: `docker compose run --rm -w /app/dbt app mf ...`.
   - Metric definitions chosen: "revenue" means net (completed orders only). `average_order_value` = net revenue / completed orders. `conversion_rate` = all orders / sessions. `roas` = net revenue / ad spend. `customer_acquisition_cost` = ad spend / new customers, grouped by acquisition channel (blended overall).
-- Step 3 (golden set) is done: 45 questions in `evals/golden.yaml`. `docker compose run --rm app python scripts/check_golden.py` validates the file and prints every expected answer. Ambiguous questions expect the AI to answer with the default definition and state it (revenue = net).
+- Step 3 (golden set) is done: 48 questions in `evals/golden.yaml`. `docker compose run --rm app python scripts/check_golden.py` validates the file and prints every expected answer. Ambiguous questions expect the AI to answer with the default definition and state it (revenue = net); questions too vague for a default expect a clarifying question.
+- Step 4 (agent) code is written but not yet run against the API: `chat/tools.py` and `chat/agent.py`, plain Anthropic SDK (LangGraph moved to step 7). `python -m chat.tools` self-checks the tools without a key. MetricFlow only generates the SQL; the agent runs it on a read-only DuckDB connection with external access off.
 
 **Not set up yet:** Anthropic API key (needed from step 4).
 
@@ -80,12 +81,13 @@ Build this before the agent, so the agent can't be tuned to the test.
 
 ### 4. Claude agent
 
-- Anthropic SDK with `claude-opus-5-5`, orchestrated with LangGraph.
+- Anthropic SDK with `claude-opus-5-5`, a plain tool loop (LangGraph comes in step 7).
 - Tools:
   - `list_metrics`
   - `list_dimensions`
   - `query_metrics`: MetricFlow turns the request into SQL, which runs read-only on DuckDB.
   - `run_sql`: read-only raw SQL, used as the baseline.
+  - `ask_clarification`: for questions too vague to answer; ends the turn.
 - Three modes: semantic only, raw SQL only, hybrid.
 - Things specific to Opus 5.5:
   - Thinking is always on; control depth with `output_config.effort`, which defaults to `medium`.
@@ -118,6 +120,7 @@ This is where the learning happens.
 
 This comes last because the evals don't need a UI.
 
+- Wrap the step 4 agent loop in a LangGraph graph (saved chat state, clarification as a pause for the user).
 - A FastAPI endpoint with the OpenAI-style API that OpenWebUI expects.
 - LiteLLM as the model gateway. First check that it passes through `thinking` and `output_config`; if it doesn't, call Claude directly.
 - Self-hosted Langfuse for traces, with each eval run linked to its traces.

@@ -8,6 +8,9 @@ services:
       - ./:/app            # live code edits without rebuilding
       - /app/.venv         # keep the host venv out of the container
     working_dir: /app
+    env_file:
+      - path: .env   # ANTHROPIC_API_KEY=...
+        required: false
     environment:
       DBT_PROJECT_DIR: /app/dbt
       DBT_PROFILES_DIR: /app/dbt
