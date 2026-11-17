@@ -19,6 +19,8 @@ from chat.tools import FUNCTIONS, tool_defs
 
 MODEL = os.environ.get("CHAT_MODEL", "ollama_chat/qwen3:4b")
 MAX_TURNS = 15
+TEMPERATURE = 0.3  # low for stable evals; Qwen loops at 0 in thinking mode
+NUM_CTX = 8192
 
 BASE_PROMPT = """You answer questions about the marketing data of an online running-shoe shop (January to June 2026). Use the tools to get every number; never guess or estimate one.
 
@@ -43,15 +45,16 @@ MODES = {
 }
 
 
-def _model_args(model: str, effort: str) -> dict:
+def _model_args(model: str, effort: str, temperature: float) -> dict:
     if model.startswith("ollama"):
-        return {"num_ctx": 8192}  # Ollama's default context is small and truncates silently
+        return {"num_ctx": NUM_CTX, "temperature": temperature}  # Ollama's default context is small and truncates silently
     if model.startswith("anthropic/"):
-        return {"reasoning_effort": effort}
-    return {}
+        return {"reasoning_effort": effort}  # Claude thinking models don't take a temperature
+    return {"temperature": temperature}
 
 
-def ask(question: str, mode: str = "semantic", effort: str = "medium", model: str = MODEL) -> dict:
+def ask(question: str, mode: str = "semantic", effort: str = "medium", model: str = MODEL,
+        temperature: float = TEMPERATURE) -> dict:
     """Answer one question. Returns the answer plus everything the eval harness records."""
     tool_names, mode_prompt = MODES[mode]
     tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
@@ -67,9 +70,11 @@ def ask(question: str, mode: str = "semantic", effort: str = "medium", model: st
     start = time.monotonic()
 
     for turn in range(1, MAX_TURNS + 1):
-        response = litellm.completion(model=model, messages=messages, tools=tools, **_model_args(model, effort))
+        response = litellm.completion(model=model, messages=messages, tools=tools,
+                                    **_model_args(model, effort, temperature))
         usage["input_tokens"] += response.usage.prompt_tokens or 0
         usage["output_tokens"] += response.usage.completion_tokens or 0
+        usage["max_prompt_tokens"] = max(usage["max_prompt_tokens"], response.usage.prompt_tokens or 0)
         try:
             cost += litellm.completion_cost(response)
         except Exception:  # free/local models have no price entry
@@ -104,6 +109,7 @@ def ask(question: str, mode: str = "semantic", effort: str = "medium", model: st
         "question": question,
         "mode": mode,
         "model": model,
+        "temperature": temperature,
         "answer": (msg.content or "").strip(),
         "clarification": clarification,
         "stop_reason": stop_reason,
