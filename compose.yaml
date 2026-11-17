@@ -1,0 +1,10 @@
+services:
+  # Tools container: generators, dbt, MetricFlow. Run one-off commands with
+  #   docker compose run --rm app <command>
+  app:
+    build: .
+    image: ai-chat-app
+    volumes:
+      - ./:/app            # live code edits without rebuilding
+      - /app/.venv         # keep the host venv out of the container
+    working_dir: /app

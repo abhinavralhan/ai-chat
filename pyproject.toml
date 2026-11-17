@@ -1,0 +1,18 @@
+[project]
+name = "ai-chat"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.9.0",
+    "dbt-core>=1.12.7",
+    "dbt-duckdb>=1.11.1",
+    "dbt-metricflow[duckdb]>=0.16.0",
+    "duckdb>=2.0.0",
+    "fastapi>=0.163.1",
+    "langfuse>=5.2.0",
+    "langgraph>=1.2.22",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "typer>=0.29.1",
+    "uvicorn[standard]>=0.54.0",
+]
