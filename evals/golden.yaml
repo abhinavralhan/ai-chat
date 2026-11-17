@@ -14,7 +14,8 @@
 #   refuse            say the data can't answer it, don't make a number up
 #   clarify           too vague to pick a default: ask the user what they mean, give no number
 # Rule of thumb: a documented default exists -> state_assumption; no sensible default -> clarify.
-# tolerance: relative, default 0.01 (1%) so "about €525k" passes; an expected 0 must match exactly
+# tolerance: relative, default 0.01 (1%) so "about €525k" passes; 0 or an expected 0 must match exactly
+# must_mention: state_assumption only; the answer must contain at least one of these words (any case)
 
 questions:
   # ---------- simple lookup ----------
@@ -295,6 +296,7 @@ questions:
     question: What was our revenue?
     answer_type: number
     expected_behavior: state_assumption
+    must_mention: [net, completed]
     notes: Net (completed only). Gross including refunds and cancellations is about €597k.
     reference_sql: select sum(net_revenue_eur) from marts.fct_orders
 
@@ -303,6 +305,7 @@ questions:
     question: What was revenue in March?
     answer_type: number
     expected_behavior: state_assumption
+    must_mention: [net, completed]
     reference_sql: |
       select sum(net_revenue_eur) from marts.fct_orders
       where ordered_at >= '2026-03-01' and ordered_at < '2026-04-01'
@@ -312,6 +315,7 @@ questions:
     question: How much did TikTok bring in?
     answer_type: number
     expected_behavior: state_assumption
+    must_mention: [net, completed]
     notes: Net revenue from TikTok sessions.
     reference_sql: select sum(net_revenue_eur) from marts.fct_orders where channel_id = 3
 
@@ -320,6 +324,7 @@ questions:
     question: How many customers did we get in Q1?
     answer_type: number
     expected_behavior: state_assumption
+    must_mention: [new]
     notes: New customers created in Q1, not customers who ordered in Q1.
     reference_sql: |
       select count(*) from marts.dim_customers
@@ -330,6 +335,7 @@ questions:
     question: What is our conversion rate?
     answer_type: number
     expected_behavior: state_assumption
+    must_mention: [session]
     notes: Orders / sessions. Per-visitor conversion is a different, higher number.
     reference_sql: |
       select (select count(*) from marts.fct_orders) / (select count(*) from marts.fct_sessions)
@@ -445,4 +451,431 @@ questions:
            o as (select channel_id, count(*) as orders from marts.fct_orders group by 1)
       select c.channel_name, a.spend, o.orders
       from marts.dim_channels c join a using (channel_id) join o using (channel_id)
+      where c.channel_type = 'paid' order by 1
+
+  # ======================================================================
+  # Batch 2: same category mix as batch 1, written before any agent tuning.
+  # ======================================================================
+
+  # ---------- simple lookup ----------
+  - id: simple_07
+    category: simple_lookup
+    question: How many orders were completed?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select count(*) from marts.fct_orders where status = 'completed'
+
+  - id: simple_08
+    category: simple_lookup
+    question: What was gross revenue in total?
+    answer_type: number
+    expected_behavior: answer
+    notes: Gross is asked for explicitly, so net is wrong here.
+    reference_sql: select sum(gross_revenue_eur) from marts.fct_orders
+
+  - id: simple_09
+    category: simple_lookup
+    question: How many ad clicks did we get in total?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select sum(clicks) from marts.fct_ad_spend
+
+  - id: simple_10
+    category: simple_lookup
+    question: How many orders were cancelled?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select count(*) from marts.fct_orders where status = 'cancelled'
+
+  - id: simple_11
+    category: simple_lookup
+    question: How much did we spend on ads in total?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select sum(spend_eur) from marts.fct_ad_spend
+
+  - id: simple_12
+    category: simple_lookup
+    question: How many sessions did we have in January 2026?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select count(*) from marts.fct_sessions
+      where started_at >= '2026-01-01' and started_at < '2026-02-01'
+
+  # ---------- time grain ----------
+  - id: time_06
+    category: time_grain
+    question: What was ad spend each month?
+    answer_type: table
+    expected_behavior: answer
+    reference_sql: |
+      select strftime(spend_date, '%Y-%m') as mon, sum(spend_eur)
+      from marts.fct_ad_spend group by 1 order by 1
+
+  - id: time_07
+    category: time_grain
+    question: Which month had the highest net revenue?
+    answer_type: text
+    expected_behavior: answer
+    reference_sql: |
+      select monthname(ordered_at) from marts.fct_orders
+      group by 1 order by sum(net_revenue_eur) desc limit 1
+
+  - id: time_08
+    category: time_grain
+    question: On which day did we spend the most on ads? Give the date.
+    answer_type: text
+    expected_behavior: answer
+    reference_sql: |
+      select spend_date::varchar from marts.fct_ad_spend
+      group by 1 order by sum(spend_eur) desc limit 1
+
+  - id: time_09
+    category: time_grain
+    question: How many orders were placed per quarter?
+    answer_type: table
+    expected_behavior: answer
+    notes: Q3 has one order (1 July). Leaving it out is wrong because no period was given.
+    reference_sql: |
+      select 'Q' || quarter(ordered_at) as qtr, count(*)
+      from marts.fct_orders group by 1 order by 1
+
+  - id: time_10
+    category: time_grain
+    question: What was our average daily ad spend in June 2026?
+    answer_type: number
+    expected_behavior: answer
+    notes: Total June spend over the 30 days of June.
+    reference_sql: |
+      select sum(spend_eur) / 30 from marts.fct_ad_spend
+      where spend_date between '2026-06-01' and '2026-06-30'
+
+  # ---------- filter ----------
+  - id: filter_07
+    category: filter
+    question: How many orders from the Netherlands were refunded?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select count(*) from marts.fct_orders where country = 'NL' and status = 'refunded'
+
+  - id: filter_08
+    category: filter
+    question: What was net revenue from tablet orders?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select sum(net_revenue_eur) from marts.fct_orders where device = 'tablet'
+
+  - id: filter_09
+    category: filter
+    question: How many sessions came from organic search in April 2026?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select count(*) from marts.fct_sessions
+      where channel_id = 6 and started_at >= '2026-04-01' and started_at < '2026-05-01'
+
+  - id: filter_10
+    category: filter
+    question: How many clicks did TikTok ads get in Q1 2026?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select sum(clicks) from marts.fct_ad_spend
+      where channel_id = 3 and spend_date between '2026-01-01' and '2026-03-31'
+
+  - id: filter_11
+    category: filter
+    question: What was net revenue from Austria in May 2026?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select sum(net_revenue_eur) from marts.fct_orders
+      where country = 'AT' and ordered_at >= '2026-05-01' and ordered_at < '2026-06-01'
+
+  - id: filter_12
+    category: filter
+    question: How much did we spend on awareness campaigns?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select sum(a.spend_eur) from marts.fct_ad_spend a
+      join marts.dim_campaigns c using (campaign_id) where c.objective = 'awareness'
+
+  # ---------- ratio ----------
+  - id: ratio_07
+    category: ratio
+    question: What is the conversion rate for the newsletter?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select (select count(*) from marts.fct_orders where channel_id = 5)
+           / (select count(*) from marts.fct_sessions where channel_id = 5)
+
+  - id: ratio_08
+    category: ratio
+    question: What was the click-through rate for Google Search in March 2026?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select sum(clicks) / sum(impressions) from marts.fct_ad_spend
+      where channel_id = 1 and spend_date between '2026-03-01' and '2026-03-31'
+
+  - id: ratio_09
+    category: ratio
+    question: What is the average order value in Germany?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select sum(net_revenue_eur) / count(*) filter (where status = 'completed')
+      from marts.fct_orders where country = 'DE'
+
+  - id: ratio_10
+    category: ratio
+    question: What is our overall return on ad spend?
+    answer_type: number
+    expected_behavior: answer
+    notes: Blended, meaning all net revenue over all ad spend, the way the roas metric is defined.
+    reference_sql: |
+      select (select sum(net_revenue_eur) from marts.fct_orders)
+           / (select sum(spend_eur) from marts.fct_ad_spend)
+
+  - id: ratio_11
+    category: ratio
+    question: What is the cost per click for TikTok?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select sum(spend_eur) / sum(clicks) from marts.fct_ad_spend where channel_id = 3
+
+  - id: ratio_12
+    category: ratio
+    question: What share of orders were refunded?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select count(*) filter (where status = 'refunded') / count(*) from marts.fct_orders
+
+  # ---------- multi-hop join ----------
+  - id: join_07
+    category: multi_hop_join
+    question: How many customers were acquired through TikTok?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: select count(*) from marts.dim_customers where acquisition_channel_id = 3
+
+  - id: join_08
+    category: multi_hop_join
+    question: What is the customer acquisition cost for Google Search?
+    answer_type: number
+    expected_behavior: answer
+    reference_sql: |
+      select (select sum(spend_eur) from marts.fct_ad_spend where channel_id = 1)
+           / (select count(*) from marts.dim_customers where acquisition_channel_id = 1)
+
+  - id: join_09
+    category: multi_hop_join
+    question: Which channel acquired the most customers in Germany?
+    answer_type: text
+    expected_behavior: answer
+    reference_sql: |
+      select c.channel_name from marts.dim_customers cu
+      join marts.dim_channels c on c.channel_id = cu.acquisition_channel_id
+      where cu.country = 'DE' group by 1 order by count(*) desc limit 1
+
+  - id: join_10
+    category: multi_hop_join
+    question: How much net revenue came from customers acquired through the newsletter?
+    answer_type: number
+    expected_behavior: answer
+    notes: All orders of those customers, whatever channel the later orders came from.
+    reference_sql: |
+      select sum(o.net_revenue_eur) from marts.fct_orders o
+      join marts.dim_customers cu using (customer_id) where cu.acquisition_channel_id = 5
+
+  - id: join_11
+    category: multi_hop_join
+    question: Which conversion campaign had the lowest cost per click?
+    answer_type: text
+    expected_behavior: answer
+    notes: nl_spring_sale has no ad spend or clicks, so it has no cost per click.
+    reference_sql: |
+      select c.campaign_name from marts.fct_ad_spend a
+      join marts.dim_campaigns c using (campaign_id) where c.objective = 'conversion'
+      group by 1 order by sum(a.spend_eur) / sum(a.clicks) limit 1
+
+  - id: join_12
+    category: multi_hop_join
+    question: What was net revenue per campaign objective?
+    answer_type: table
+    expected_behavior: answer
+    notes: Orders without a campaign (organic, direct) have no objective and are left out or shown as empty.
+    reference_sql: |
+      select c.objective, sum(o.net_revenue_eur) from marts.fct_orders o
+      join marts.dim_campaigns c using (campaign_id) group by 1 order by 1
+
+  # ---------- ambiguous definition ----------
+  - id: ambiguous_10
+    category: ambiguous_definition
+    question: What was revenue from Germany?
+    answer_type: number
+    expected_behavior: state_assumption
+    must_mention: [net, completed]
+    reference_sql: select sum(net_revenue_eur) from marts.fct_orders where country = 'DE'
+
+  - id: ambiguous_11
+    category: ambiguous_definition
+    question: How many customers did we get from Meta?
+    answer_type: number
+    expected_behavior: state_assumption
+    notes: New customers whose first order came from a Meta session.
+    must_mention: [new, acquired, acquisition, first order]
+    reference_sql: select count(*) from marts.dim_customers where acquisition_channel_id = 2
+
+  - id: ambiguous_12
+    category: ambiguous_definition
+    question: What was revenue per channel?
+    answer_type: table
+    expected_behavior: state_assumption
+    must_mention: [net, completed]
+    reference_sql: |
+      select c.channel_name, sum(o.net_revenue_eur) from marts.fct_orders o
+      join marts.dim_channels c using (channel_id) group by 1 order by 1
+
+  - id: ambiguous_13
+    category: ambiguous_definition
+    question: What is the conversion rate in Germany?
+    answer_type: number
+    expected_behavior: state_assumption
+    must_mention: [session]
+    reference_sql: |
+      select (select count(*) from marts.fct_orders where country = 'DE')
+           / (select count(*) from marts.fct_sessions where country = 'DE')
+
+  - id: ambiguous_14
+    category: ambiguous_definition
+    question: What did marketing cost in Q2?
+    answer_type: number
+    expected_behavior: state_assumption
+    notes: Ad spend is the only marketing cost in the data. Q2 2026 is the only Q2.
+    must_mention: [ad spend, advertising, ads]
+    reference_sql: |
+      select sum(spend_eur) from marts.fct_ad_spend
+      where spend_date between '2026-04-01' and '2026-06-30'
+
+  - id: ambiguous_15
+    category: ambiguous_definition
+    question: Show me the numbers.
+    answer_type: none
+    expected_behavior: clarify
+    notes: No metric or period at all.
+
+  - id: ambiguous_16
+    category: ambiguous_definition
+    question: What should we improve?
+    answer_type: none
+    expected_behavior: clarify
+    notes: Open-ended advice with no metric. Ask what area or goal they mean.
+
+  - id: ambiguous_17
+    category: ambiguous_definition
+    question: Which campaign worked best?
+    answer_type: none
+    expected_behavior: clarify
+    notes: Rewording of ambiguous_06 at campaign level. Best by revenue, ROAS or new customers differ.
+
+  - id: ambiguous_18
+    category: ambiguous_definition
+    question: How is Germany doing?
+    answer_type: none
+    expected_behavior: clarify
+    notes: A filter but no metric. Ask which metric (revenue, orders, conversion).
+
+  # ---------- unanswerable ----------
+  - id: unanswerable_05
+    category: unanswerable
+    question: What is the open rate of our newsletter emails?
+    answer_type: none
+    expected_behavior: refuse
+    notes: No email send or open data, only newsletter sessions.
+
+  - id: unanswerable_06
+    category: unanswerable
+    question: How many items are in an average order?
+    answer_type: none
+    expected_behavior: refuse
+    notes: No order line items.
+
+  - id: unanswerable_07
+    category: unanswerable
+    question: What was the average discount per order?
+    answer_type: none
+    expected_behavior: refuse
+    notes: No discount data. Gross minus net is refunds and cancellations, not discounts.
+
+  - id: unanswerable_08
+    category: unanswerable
+    question: What is our bounce rate?
+    answer_type: none
+    expected_behavior: refuse
+    notes: No page views per session.
+
+  # ---------- trap ----------
+  - id: trap_07
+    category: trap
+    question: How many orders were placed in June 2026?
+    answer_type: number
+    expected_behavior: answer
+    notes: ordered_at is a timestamp. "<= '2026-06-30'" drops most of 30 June; the 1 July order must not be counted.
+    tolerance: 0
+    reference_sql: |
+      select count(*) from marts.fct_orders
+      where ordered_at >= '2026-06-01' and ordered_at < '2026-07-01'
+
+  - id: trap_08
+    category: trap
+    question: How many new customers did we get in H1 2026?
+    answer_type: number
+    expected_behavior: answer
+    notes: Excludes the one customer created on 1 July.
+    tolerance: 0
+    reference_sql: |
+      select count(*) from marts.dim_customers
+      where created_at >= '2026-01-01' and created_at < '2026-07-01'
+
+  - id: trap_09
+    category: trap
+    question: How many unique visitors came to the website?
+    answer_type: number
+    expected_behavior: answer
+    notes: Distinct visitors, not sessions. One visitor can have many sessions.
+    reference_sql: select count(distinct visitor_id) from marts.fct_sessions
+
+  - id: trap_10
+    category: trap
+    question: What share of net revenue came from orders without a campaign?
+    answer_type: number
+    expected_behavior: answer
+    notes: Organic and direct orders have a NULL campaign; "= null" filters match nothing.
+    reference_sql: |
+      select sum(net_revenue_eur) filter (where campaign_id is null) / sum(net_revenue_eur)
+      from marts.fct_orders
+
+  - id: trap_11
+    category: trap
+    question: What is the click-through rate of the newsletter?
+    answer_type: none
+    expected_behavior: refuse
+    notes: The newsletter has no ad impressions, so CTR is undefined. Not 0.
+
+  - id: trap_12
+    category: trap
+    question: For each paid campaign, what were net revenue and ad spend?
+    answer_type: table
+    expected_behavior: answer
+    notes: Joining daily ad spend rows to orders on campaign multiplies both. Aggregate each side first.
+    reference_sql: |
+      with r as (select campaign_id, sum(net_revenue_eur) as rev from marts.fct_orders group by 1),
+           s as (select campaign_id, sum(spend_eur) as spend from marts.fct_ad_spend group by 1)
+      select c.campaign_name, r.rev, s.spend
+      from marts.dim_campaigns c join r using (campaign_id) join s using (campaign_id)
       where c.channel_type = 'paid' order by 1

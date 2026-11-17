@@ -40,6 +40,7 @@ def main() -> None:
         assert q["answer_type"] in ANSWER_TYPES, q["id"]
         assert q["expected_behavior"] in BEHAVIORS, q["id"]
         assert ("reference_sql" in q) == (q["answer_type"] != "none"), q["id"]
+        assert ("must_mention" in q) == (q["expected_behavior"] == "state_assumption"), q["id"]
         if q["answer_type"] == "none":
             print(f"{q['id']:<16} ({q['expected_behavior']}) {q['question']}")
             continue
