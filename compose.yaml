@@ -9,9 +9,11 @@ services:
       - /app/.venv         # keep the host venv out of the container
     working_dir: /app
     env_file:
-      - path: .env   # ANTHROPIC_API_KEY=...
+      - path: .env   # API keys for online models, e.g. OPENROUTER_API_KEY=...
         required: false
     environment:
       DBT_PROJECT_DIR: /app/dbt
       DBT_PROFILES_DIR: /app/dbt
       DUCKDB_PATH: /app/data/warehouse.duckdb
+      OLLAMA_API_BASE: http://host.docker.internal:11434   # Ollama runs on the Mac, not in Docker
+      LITELLM_LOG: ERROR
