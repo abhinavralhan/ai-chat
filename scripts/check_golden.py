@@ -14,12 +14,12 @@ CATEGORIES = {
     "simple_lookup", "time_grain", "filter", "ratio",
     "multi_hop_join", "ambiguous_definition", "unanswerable", "trap",
 }
-ANSWER_TYPES = {"number", "text", "table", "judge", "none"}
-BEHAVIORS = {"answer", "state_assumption", "refuse"}
+ANSWER_TYPES = {"number", "text", "table", "none"}
+BEHAVIORS = {"answer", "state_assumption", "refuse", "clarify"}
 
 
 def expected(con, q: dict):
-    """Run a question's reference SQL; scalar for number/text, rows for table/judge."""
+    """Run a question's reference SQL; scalar for number/text, rows for table."""
     rows = con.execute(q["reference_sql"]).fetchall()
     if q["answer_type"] in ("number", "text"):
         assert len(rows) == 1 and len(rows[0]) == 1, f"{q['id']}: expected one value, got {rows}"
@@ -41,7 +41,7 @@ def main() -> None:
         assert q["expected_behavior"] in BEHAVIORS, q["id"]
         assert ("reference_sql" in q) == (q["answer_type"] != "none"), q["id"]
         if q["answer_type"] == "none":
-            print(f"{q['id']:<16} (refuse) {q['question']}")
+            print(f"{q['id']:<16} ({q['expected_behavior']}) {q['question']}")
             continue
         ans = expected(con, q)
         shown = f"{ans:,.4f}" if isinstance(ans, float) else ans

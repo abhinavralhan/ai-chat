@@ -7,11 +7,13 @@
 #   - "customers" in a period = new customers created in that period
 #   - weeks start on Monday; no period given = all data (includes the one 1 July order)
 #
-# answer_type:  number | text | table (first column is the key) | judge (LLM judge) | none
+# answer_type:  number | text | table (first column is the key) | none
 # expected_behavior:
 #   answer            give the number
 #   state_assumption  give the number for the convention above and say which definition was used
 #   refuse            say the data can't answer it, don't make a number up
+#   clarify           too vague to pick a default: ask the user what they mean, give no number
+# Rule of thumb: a documented default exists -> state_assumption; no sensible default -> clarify.
 # tolerance: relative, default 0.01 (1%) so "about €525k" passes; an expected 0 must match exactly
 
 questions:
@@ -335,20 +337,30 @@ questions:
   - id: ambiguous_06
     category: ambiguous_definition
     question: Which channel performs best?
-    answer_type: judge
-    expected_behavior: state_assumption
-    notes: >
-      No single right answer. Pass if the answer names the metric it ranked by and the
-      winner is correct for that metric (table below has the common ones).
-    reference_sql: |
-      with o as (select channel_id, count(*) as orders, sum(net_revenue_eur) as net_revenue
-                 from marts.fct_orders group by 1),
-           s as (select channel_id, count(*) as sessions from marts.fct_sessions group by 1),
-           a as (select channel_id, sum(spend_eur) as spend from marts.fct_ad_spend group by 1)
-      select c.channel_name, net_revenue, orders / sessions as conversion_rate,
-             net_revenue / spend as roas
-      from marts.dim_channels c join o using (channel_id) join s using (channel_id)
-      left join a using (channel_id) order by 1
+    answer_type: none
+    expected_behavior: clarify
+    notes: Best by revenue, ROAS or conversion rate gives three different winners. Ask which one.
+
+  - id: ambiguous_07
+    category: ambiguous_definition
+    question: How are we doing?
+    answer_type: none
+    expected_behavior: clarify
+    notes: No metric or period. Ask what they want to know (revenue, growth, a channel).
+
+  - id: ambiguous_08
+    category: ambiguous_definition
+    question: Is marketing working?
+    answer_type: none
+    expected_behavior: clarify
+    notes: Could mean ROAS, CAC, conversion or growth. Ask which, optionally suggest a few.
+
+  - id: ambiguous_09
+    category: ambiguous_definition
+    question: Compare the campaigns.
+    answer_type: none
+    expected_behavior: clarify
+    notes: Compare on what? Ask for the metric and period.
 
   # ---------- unanswerable ----------
   - id: unanswerable_01
