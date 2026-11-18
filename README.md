@@ -107,7 +107,7 @@ Any model LiteLLM supports works: set `CHAT_MODEL` (e.g. `openrouter/<model>:fre
 
 ## Status
 
-Steps 1–5 and 7 of [PLAN.md](PLAN.md) are built: data, dbt, semantic layer, golden set, agent, eval harness, chat UI with memory and tracing. The first eval run is only a smoke test (37 of 864 answers, see [evals/README.md](evals/README.md#results-so-far)). Open work is in the TODO list in PLAN.md.
+Steps 1–5 and 7 of [PLAN.md](PLAN.md) are built: data, dbt, semantic layer, golden set, agent, eval harness, chat UI with memory and tracing. The first eval run is only a smoke test (37 of 864 answers, see [evals/README.md](evals/README.md#results-so-far)). Open work is in the TODO list in PLAN.md, including five open findings from a code audit on 18 November 2026.
 
 ## Contributing and reporting issues
 

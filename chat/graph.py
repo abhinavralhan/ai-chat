@@ -61,7 +61,7 @@ def send(graph, thread_id: str, text: str, mode: str) -> dict:
     Returns {"text": reply to show, "waiting": True if the reply is a clarifying question}.
     """
     config = {"configurable": {"thread_id": thread_id}}
-    if graph.get_state(config).next:
+    if any(t.interrupts for t in graph.get_state(config).tasks):  # a clarifying question is waiting; not a crashed step
         out = graph.invoke(Command(resume=text), config)
     else:
         out = graph.invoke({"messages": [{"role": "user", "content": text}], "mode": mode, "clarification": None}, config)
@@ -88,4 +88,23 @@ if __name__ == "__main__":
         assert send(g, "t1", "and spend in March?", "semantic")["text"] == "€56k ad spend in March."
         assert spy.call_args.args == ("and spend in March?", "semantic") and len(spy.call_args.kwargs["history"]) == 4
         assert not g.get_state({"configurable": {"thread_id": "t2"}}).values  # threads are separate
+
+    # a crashed answer (e.g. Ollama down) must not swallow the next message
+    replies = iter([ConnectionError("ollama down"), {"answer": "€56k ad spend.", "clarification": None}])
+
+    def flaky(*a, **k):
+        r = next(replies)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    with mock.patch.object(agent, "ask", side_effect=flaky) as spy:
+        g = build(InMemorySaver())
+        try:
+            send(g, "t3", "first question", "sql")
+            raise AssertionError("the crash should reach the caller")
+        except ConnectionError:
+            pass
+        assert send(g, "t3", "second question", "sql")["text"] == "€56k ad spend."
+        assert spy.call_args.args[0] == "second question"
     print("graph ok")

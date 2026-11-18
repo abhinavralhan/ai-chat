@@ -85,6 +85,13 @@ Before going public (step 8):
 - Model dropdown with a fixed list of allowed models.
 - OpenWebUI logins (`WEBUI_AUTH` is off), a per-user rate limit and a SQL query timeout.
 
+Code audit, 18 November 2026. Fixed: a new chat message was dropped after a failed answer (`chat/graph.py`), and the chat UI and API were open to the whole local network (ports now bind to 127.0.0.1). Still open:
+- Switching mode while answering a clarifying question is ignored: the reply resumes in the old mode, but OpenWebUI and Langfuse label it with the new one. Fix in `chat/graph.py` `send()`: `Command(resume=text, update={"mode": mode})`.
+- Eval answers record the git commit but not the prompt. Uncommitted edits, including any change to a metric description in `semantic.yml` (it feeds the glossary), mix silently when a run is resumed. Fix: save a short hash of the system prompt with each answer and have `evals/report.py` warn when the hashes differ, as it does for commits.
+- The glossary adds about 300 tokens to every model call, and 4 answers in `full_1` were already within 10% of the 8,192-token window. Ollama silently drops the oldest messages when a prompt is too long. Fix: `NUM_CTX = 12288` in `chat/agent.py`, after checking that it still fits in RAM.
+- `anthropic`, `rich` and `typer` are listed in `pyproject.toml` but nothing imports them. Fix: `uv remove anthropic rich typer`.
+- `evals/report.py` crashes with a KeyError when a saved answer's question id is no longer in `golden.yaml` (renamed or removed). Fix: skip those answers and print how many were skipped.
+
 To run the data step in Docker:
 
 ```sh
