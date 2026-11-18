@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 
+from chat import tracing
 from chat.agent import MODEL, MODES, TEMPERATURE, ask
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +64,8 @@ def main() -> None:
     with path.open("a") as f:
         for i, (rep, q, mode) in enumerate(todo, 1):
             try:
-                result = ask(q["question"], mode, model=args.model, temperature=args.temperature)
+                with tracing.session(args.run_id, mode, q["id"]):  # Langfuse session = eval run
+                    result = ask(q["question"], mode, model=args.model, temperature=args.temperature)
             except Exception as e:  # model server down or similar: don't save, so a rerun retries it
                 errors += 1
                 print(f"[{i}/{len(todo)}] {q['id']} {mode} ERROR {type(e).__name__}: {str(e)[:200]}")

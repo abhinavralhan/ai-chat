@@ -9,7 +9,7 @@ services:
       - /app/.venv         # keep the host venv out of the container
     working_dir: /app
     env_file:
-      - path: .env   # API keys for online models, e.g. OPENROUTER_API_KEY=...
+      - path: .env   # API keys, e.g. OPENROUTER_API_KEY=..., and Langfuse Cloud (LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL); no Langfuse key = no tracing
         required: false
     environment:
       DBT_PROJECT_DIR: /app/dbt
@@ -17,8 +17,9 @@ services:
       DUCKDB_PATH: /app/data/warehouse.duckdb
       OLLAMA_API_BASE: http://host.docker.internal:11434   # Ollama runs on the Mac, not in Docker
       LITELLM_LOG: ERROR
+      CHAT_STATE_DB: /app/data/chat_state.sqlite          # chat threads (LangGraph checkpoints)
 
-  # Chat UI: docker compose up api webui, then open http://localhost:3000
+  # Chat UI: docker compose up -d webui, then open http://localhost:3000
   api:
     extends: app
     command: uvicorn chat.server:app --host 0.0.0.0 --port 8000
@@ -37,6 +38,7 @@ services:
       OPENAI_API_KEY: unused
       ENABLE_OLLAMA_API: "false"
       WEBUI_AUTH: "false"              # local, single user; needs real logins before step 8 goes public
+      ENABLE_FORWARD_USER_INFO_HEADERS: "true"   # sends X-OpenWebUI-Chat-Id, the api's thread id
       AIOHTTP_CLIENT_TIMEOUT: "600"    # one answer can take a few minutes on qwen3:4b
       # OpenWebUI asks the chat model for titles, tags and suggestions; each would be a full agent run
       ENABLE_TITLE_GENERATION: "false"

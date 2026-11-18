@@ -4,6 +4,43 @@ The goal is to measure how often the AI gives the right answer about the marketi
 
 The model is non-deterministic: the same question can get a different answer on each run. The approach is to make everything else deterministic, then measure the model's spread instead of trying to remove it.
 
+## Where the knowledge comes from
+
+Every answer comes from the same model, the same prompt rules and the same database. The three modes differ only in what the model is told about that database. That difference is the experiment.
+
+| Knowledge | Where it lives | What it gives the model | Modes |
+|---|---|---|---|
+| Business context | `BASE_PROMPT` in `chat/agent.py` | The shop, the period (January to June 2026), EUR, and three rules: use the common default meaning and say which one, ask when the question is too vague, say so when the data can't answer. Plus a glossary: every metric description from `semantic.yml`, read when the agent starts, so the definitions are written in one place only. | all |
+| Semantic layer | `dbt/models/marts/semantic.yml`, read through `list_metrics`, `list_dimensions`, `query_metrics` | 15 named metrics with definitions (revenue means net: completed orders only; CAC is blended across channels), the dimensions each metric can be grouped by, the joins between tables, and time grains. The model only picks names; MetricFlow writes the SQL. | semantic, hybrid |
+| Database directly | the `raw` and `marts` schemas, read through `run_sql` | Table and column names from `information_schema`, and the rows. No descriptions: table and column docs aren't written to DuckDB. The glossary says what net revenue means; the model has to find the columns for it (`status = 'completed'`) and write the joins itself. | sql, hybrid |
+| Tool descriptions | `SCHEMAS` in `chat/tools.py` | How to call each tool: grain names like `metric_time__month`, filter syntax, row limit. | per mode |
+
+The hybrid mode gets everything and is told to prefer the semantic layer, using SQL only when no metric or dimension fits.
+
+In the chat app, LangGraph also adds the earlier turns of the thread (`chat/graph.py`). Evals don't use that: every question starts a fresh thread.
+
+### What each mode has to work out by itself
+
+| Category | Questions | Semantic mode | SQL mode |
+|---|---|---|---|
+| simple_lookup | 12 | pick one metric | find the table and the right column |
+| time_grain | 10 | add a grain suffix | `date_trunc` on the right timestamp |
+| filter | 12 | find the dimension; the value is guessed (no tool lists values) | find the column and its values with queries |
+| ratio | 12 | the formula is defined (sum over sum) | the glossary gives the formula; writing it in SQL risks averaging ratios |
+| multi_hop_join | 12 | MetricFlow does the joins | join sessions, orders, customers, campaigns itself; risks counting rows twice |
+| ambiguous_definition, state the assumption | 10 | the metric description says "revenue" means net | the glossary says "revenue" means net; it has to map that to order status |
+| ambiguous_definition, clarify | 8 | business context rules only | same |
+| trap | 12 | time boundaries come from `metric_time`; still has to notice the July row or the missing spend | handles timestamp boundaries itself |
+| unanswerable | 8 | business context rules; no matching metric is a hint | has to notice the data isn't there |
+
+### How much each source carries in this golden set
+
+- 34 of 96 questions (ratio, multi-hop join, state the assumption) need business definitions, ratio formulas or join paths. Every mode now gets the definitions and formulas from the glossary; only the semantic layer turns them into correct SQL and joins. The semantic layer should still win here, mostly on the 12 multi-hop joins.
+- 43 of 96 (simple lookup, time grain, filter, and the 9 trap questions with a number answer) are solvable from either source. The semantic layer mostly saves exploration and hand-written SQL, so it should be faster and fail less often, though not by much.
+- 19 of 96 (8 clarify, 11 refuse) test behaviour. They depend on the business-context rules in the prompt, which every mode shares, so the modes should score about the same.
+
+Before the glossary, business definitions reached only the semantic and hybrid modes, so the SQL mode had nothing telling it that "revenue" means net. With the glossary in every mode, the gap between semantic and SQL measures what the generated SQL and joins add, not who knows the definitions. Runs made before the glossary (`full_1`) used the old prompt, so compare them only with runs that also lack it. To measure the glossary's own effect, run the SQL mode with and without it.
+
 ## The loop
 
 ```mermaid
@@ -127,7 +164,7 @@ These are the settings a user of the system can change to improve the score. Cha
 | | Error messages that say how to fix the call (e.g. list the valid names) | gave up, looped |
 | | A tool that lists a dimension's values | wrong filter value |
 | | Fewer rows per result | context overflow |
-| Prompt (`chat/agent.py`) | Business glossary and default definitions | wrong metric, missed clarification |
+| Prompt (`chat/agent.py`) | Business glossary (built from `semantic.yml`, on) and default definitions | wrong metric, missed clarification |
 | | Data date range and date rules ("June ends on 30 June inclusive") | wrong time range |
 | | Clarification policy wording | missed or needless clarification |
 | | Worked examples (few-shot) | most classes, but makes prompts longer |
@@ -171,6 +208,29 @@ Ollama must be running on the Mac (`ollama serve`). Runs are saved in `evals/run
 1. Grader and its tests, with hand-written answers and no model. Done.
 2. Runner, tried on 3 questions. Done.
 3. Report. Done.
-4. A small test run (about 8 questions), then a full run once per mode, overnight.
-5. Failure review by hand.
+4. A small test run, then a full run once per mode. Started: `full_1` was stopped on purpose at 37 of 864 answers (see Results so far).
+5. Failure review by hand. First pass below.
 6. Repeat runs (3 per question) for the variance numbers.
+
+## Results so far
+
+`full_1`, 18 November 2026: qwen3:4b, temperature 0.3, the prompt before the glossary. It was stopped after 37 of 864 answers (repeat 1 only; questions simple_01–06, time_01–05, filter_01–02). That is too few to compare modes: every paired comparison gives p = 1.00. Read these as a smoke test, not a result.
+
+| Mode | Passed | 95% interval | Avg latency | Avg tokens |
+|---|---|---|---|---|
+| semantic | 7/13 (54%) | 29%–77% | 205 s | 18,768 |
+| sql | 8/12 (67%) | 39%–86% | 165 s | 15,819 |
+| hybrid | 7/12 (58%) | 32%–81% | 222 s | 20,342 |
+
+What the failures show so far:
+
+| Failure | Where | Lever to try |
+|---|---|---|
+| Gave up because no metric matched ("no metric for total customers", "for refunded orders") | simple_04, simple_06 in semantic and hybrid; hybrid didn't fall back to SQL as told | add `customers` and `refunded_orders` metrics; firmer fallback rule for hybrid |
+| Left out the July row when grouping by month | time_01, time_03 in every mode | the trap works as designed; a date-range rule in the prompt would change it |
+| Wrong June number in hand-written SQL | time_01, time_03 in sql | date rules in the prompt, date columns in marts |
+| No day-of-week dimension; ISO day number misread | time_04 | add a day-of-week dimension |
+| Wrong filter value (`'Germany'` instead of the stored code; Google Search spend returned as 0) | filter_01 sql, filter_02 semantic | a tool that lists a dimension's values |
+| Prompt within 10% of the 8,192-token window | 4 answers | larger `num_ctx` or smaller tool results |
+
+Speed is the main limit. At about 200 s per answer, a full run of 864 answers takes about 48 hours on this Mac. Next runs should use a new run id (the prompt now has the glossary) and a subset, e.g. `--ids` with 2 questions per category, or a faster free online model.

@@ -11,7 +11,7 @@
 | Data | Synthetic marketing data | We control it, so every eval question has a known correct answer. |
 | AI | LiteLLM, default `ollama_chat/qwen3:4b` (local, via Ollama on the Mac) | No API key or paid calls. qwen3:8b was dropped: about 7 GB of RAM on a 16 GB Mac. qwen3:4b uses 3.9 GB. Changing model is one setting (`CHAT_MODEL` or `--model`). |
 | Runtime | Docker (`compose.yaml`) | Everything runs in containers. |
-| Later | LangGraph, OpenWebUI, Langfuse | Same stack as the existing internal tool. |
+| Chat and tracing | LangGraph, OpenWebUI, Langfuse Cloud | Same stack as the existing internal tool. Langfuse Cloud instead of self-hosting, which needs Postgres, ClickHouse, Redis and S3. |
 
 ## Already done
 
@@ -42,9 +42,48 @@
 - Step 4 (agent) works with qwen3:4b: `chat/tools.py` and `chat/agent.py`, a plain LiteLLM tool loop (LangGraph moved to step 7). Questions take 40–150 s each. Start Ollama with `ollama serve` (or `brew services start ollama`) before running it. `python -m chat.tools` self-checks the tools without a key. MetricFlow only generates the SQL; the agent runs it on a read-only DuckDB connection with external access off.
 
 - Step 5 (eval harness) is built: `evals/grade.py`, `evals/run.py`, `evals/report.py`; design in `evals/README.md`. The first full run is still to do.
-- Step 7, first part: `chat/server.py` is an OpenAI-style endpoint (each mode is a "model" in OpenWebUI), and `compose.yaml` has `api` and `webui` services. Not started yet; LangGraph and Langfuse are still to do.
+- Step 7 is built: `docker compose up -d webui` starts the chat UI (http://localhost:3000) and the api. Traces go to Langfuse Cloud with the keys in `.env`.
+  - `chat/server.py` is an OpenAI-style endpoint; each mode is a "model" in OpenWebUI.
+  - `chat/graph.py` wraps the agent in LangGraph. Chat memory is ours, not OpenWebUI's: threads are checkpointed to `data/chat_state.sqlite`, keyed by OpenWebUI's `X-OpenWebUI-Chat-Id` header. A clarifying question pauses the graph (`interrupt`); the person's next message resumes it and can answer or rewrite the request.
+  - `chat/tracing.py` sends a trace per question to Langfuse (agent span, one generation per model call, one span per tool call), grouped into sessions: a chat thread, or an eval run id. Tracing is off when `LANGFUSE_PUBLIC_KEY` is unset.
+  - Known limit: editing or regenerating an earlier message in OpenWebUI doesn't rewind our thread; the edit arrives as a new message.
+- The agent prompt now carries a business glossary built from the metric descriptions in `semantic.yml`, so the SQL mode knows the definitions too (e.g. "revenue" means net). Runs before this (`full_1`) used the old prompt; start a new run id. See "Where the knowledge comes from" in `evals/README.md`.
 
-**Not set up yet:** Anthropic API key (needed from step 4).
+- Step 5, first run: `full_1` was stopped on purpose at 37 of 864 answers (too slow on qwen3:4b, about 200 s per answer). Results and a first failure review are in `evals/README.md` under Results so far.
+
+**Not set up yet:** Anthropic API key (only needed to try Claude models; the default is local qwen3:4b).
+
+## Using it
+
+1. Start Ollama on the Mac: `ollama serve` (or `brew services start ollama`).
+2. Put the Langfuse Cloud keys in `.env` in the repo root: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`. Without them, tracing is off and everything else works.
+3. `docker compose up -d webui` (it starts the api too). After a code change or a `.env` change: `docker compose up -d --force-recreate api`.
+
+| What | Where | How |
+|---|---|---|
+| Chat | http://localhost:3000 | No login. Pick a model: `marketing-semantic`, `marketing-sql` or `marketing-hybrid`. One answer takes 1–4 minutes on qwen3:4b. |
+| Traces | https://cloud.langfuse.com, the project the keys belong to | Tracing shows one trace per question: the agent span, each model call (prompt, output, tokens) and each tool call (input, SQL result). Sessions groups them: one session per chat (OpenWebUI's chat id) or per eval run (the run id, tagged with mode and question id). |
+| API | http://localhost:8000/docs | FastAPI's page for the endpoint OpenWebUI calls. |
+| Eval results | the terminal | `docker compose run --rm app python -m evals.report evals/runs/<run_id>.jsonl` prints the tables and writes `evals/runs/<run_id>.graded.csv`. There's no web dashboard. |
+| Chat memory | `data/chat_state.sqlite` | LangGraph checkpoints, one thread per OpenWebUI chat. Delete the file to forget every chat. |
+
+## TODO
+
+Evals:
+- New run with the glossary under a new run id, on a subset that finishes in an hour or two (2 questions per category, 1 repeat), or on a faster free online model.
+- Fix the failures found in `full_1` (see `evals/README.md`): `customers` and `refunded_orders` metrics, a day-of-week dimension, a tool that lists dimension values, a firmer fallback rule for hybrid.
+- Larger `num_ctx` or smaller tool results: 4 answers came within 10% of the window.
+- Send the grader's pass/fail to Langfuse as scores, so failed traces can be filtered there.
+- Measure the glossary: SQL mode with and without it.
+
+Chat:
+- A review step where a person can rewrite the user's prompt before the agent runs (an `interrupt` before the agent node). Today a person can only steer at a clarifying question.
+- Editing or regenerating an earlier message in OpenWebUI should rewind our thread (LangGraph `get_state_history` and `update_state` can fork from an earlier checkpoint). Today the edit arrives as a new message.
+- Stream tokens instead of sending the whole answer at the end.
+
+Before going public (step 8):
+- Model dropdown with a fixed list of allowed models.
+- OpenWebUI logins (`WEBUI_AUTH` is off), a per-user rate limit and a SQL query timeout.
 
 To run the data step in Docker:
 
@@ -127,7 +166,7 @@ This comes last because the evals don't need a UI.
 
 - Wrap the step 4 agent loop in a LangGraph graph (saved chat state, clarification as a pause for the user).
 - A FastAPI endpoint with the OpenAI-style API that OpenWebUI expects.
-- Self-hosted Langfuse for traces, with each eval run linked to its traces.
+- Langfuse Cloud for traces (keys in `.env`), with each eval run linked to its traces.
 - All services added to `compose.yaml`.
 
 ### 8. Model choice in the app

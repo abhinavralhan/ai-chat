@@ -12,9 +12,12 @@ import json
 import os
 import time
 from collections import Counter
+from pathlib import Path
 
 import litellm
+import yaml
 
+from chat import tracing
 from chat.tools import FUNCTIONS, tool_defs
 
 MODEL = os.environ.get("CHAT_MODEL", "ollama_chat/qwen3:4b")
@@ -28,6 +31,18 @@ BASE_PROMPT = """You answer questions about the marketing data of an online runn
 - If it is too vague to choose a metric or period and there is no common default, call ask_clarification instead of answering.
 - If the data cannot answer it, say so plainly instead of giving a number.
 - Lead your final answer with the number(s), then one short line on the definition or assumptions. Money is in EUR."""
+
+
+SEMANTIC_YML = Path(__file__).resolve().parents[1] / "dbt/models/marts/semantic.yml"
+
+
+def _glossary() -> str:
+    """Metric definitions from the semantic layer, so every mode (raw SQL too) knows what the business means."""
+    metrics = yaml.safe_load(SEMANTIC_YML.read_text())["metrics"]
+    return "\n".join(f"- {m['label']}: {m['description']}" for m in metrics if m.get("description"))
+
+
+BASE_PROMPT += "\n\nBusiness definitions (they hold whichever tools you use):\n" + _glossary()
 
 MODES = {
     "semantic": (
@@ -59,6 +74,15 @@ def ask(question: str, mode: str = "semantic", effort: str = "medium", model: st
 
     history: earlier user/assistant turns of the chat, e.g. the answer to a clarifying question.
     """
+    with tracing.observation("ask", as_type="agent", input={"question": question, "history": history},
+                             metadata={"mode": mode, "model": model}) as span:
+        result = _ask(question, mode, effort, model, temperature, history)
+        span.update(output=result["clarification"] or result["answer"],
+                    metadata={"stop_reason": result["stop_reason"], "turns": result["turns"]})
+    return result
+
+
+def _ask(question, mode, effort, model, temperature, history) -> dict:
     tool_names, mode_prompt = MODES[mode]
     tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                "parameters": t["input_schema"]}} for t in tool_defs(tool_names)]
@@ -74,8 +98,13 @@ def ask(question: str, mode: str = "semantic", effort: str = "medium", model: st
     start = time.monotonic()
 
     for turn in range(1, MAX_TURNS + 1):
-        response = litellm.completion(model=model, messages=messages, tools=tools,
-                                    **_model_args(model, effort, temperature))
+        with tracing.observation("llm", as_type="generation", model=model, input=messages,
+                                 model_parameters=_model_args(model, effort, temperature)) as gen:
+            response = litellm.completion(model=model, messages=messages, tools=tools,
+                                        **_model_args(model, effort, temperature))
+            gen.update(output=response.choices[0].message.model_dump(exclude_none=True),
+                       usage_details={"input": response.usage.prompt_tokens or 0,
+                                      "output": response.usage.completion_tokens or 0})
         usage["input_tokens"] += response.usage.prompt_tokens or 0
         usage["output_tokens"] += response.usage.completion_tokens or 0
         usage["max_prompt_tokens"] = max(usage["max_prompt_tokens"], response.usage.prompt_tokens or 0)
@@ -99,7 +128,9 @@ def ask(question: str, mode: str = "semantic", effort: str = "medium", model: st
                     clarification = args["question"]
                     output, call["error"] = "", False
                 else:
-                    output, call["error"] = FUNCTIONS[tc.function.name](**args), False
+                    with tracing.observation(tc.function.name, as_type="tool", input=args) as t:
+                        output, call["error"] = FUNCTIONS[tc.function.name](**args), False
+                        t.update(output=output)
             except Exception as e:  # bad arguments or a failing query go back to the model to fix
                 output, call["error"] = f"{type(e).__name__}: {e}"[:2000], True
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": output})
