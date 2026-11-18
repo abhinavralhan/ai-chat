@@ -39,12 +39,41 @@ The grader checks the outcome, never the path: the model can use any tool or SQL
 
 | Expected behaviour | Answer type | Passes when | How it's checked |
 |---|---|---|---|
-| answer | number | the number in the answer is within tolerance (default 1%; an expected 0 must be exactly 0) | code: reads €525,425, 525k, 1.02%, skips years and dates |
+| answer | number | any number in the answer is within tolerance (see Tolerances below) | code: reads €525,425, 525k, 1.02%, skips years and dates |
 | answer | text | the expected value appears in the answer (e.g. "Tuesday", "gs_brand_always_on") | code |
 | answer | table | every expected value appears in the answer, within tolerance | code |
 | state_assumption | number | the number is right and the answer names the definition (e.g. "net" or "completed") | code, using a `must_mention` list per question |
 | clarify | none | the model called `ask_clarification` | code: a yes/no fact from the tool calls |
 | refuse | none | the model declined to give a number and didn't ask for clarification | a small judge prompt; the judge is checked against answers labelled by hand |
+
+Before any of these checks, an answer fails if the model asked a clarifying question when it shouldn't have, hit the turn limit, or gave an empty answer.
+
+### Tolerances
+
+A number passes when it is within the tolerance of the expected value, or within the rounding it was written with, whichever is looser. Tolerance is relative: 0.01 means 1% of the expected value.
+
+| Rule | Applies to | Example |
+|---|---|---|
+| Default tolerance 1% | every number and table value without its own `tolerance` | expected €525,424.71: anything from €520,170 to €530,679 passes, so "about €525k" passes |
+| Rounding allowance: half of the last digit written | every number, unless the tolerance is 0 | "1.0%" covers 0.95%–1.05%, so it passes for 1.02%; "1%" covers 0.5%–1.5% |
+| Percentages are divided by 100 | numbers written with % | "1.02%" is read as 0.0102 |
+| k and M are multiplied out | numbers written with k, thousand, M or million | "€0.53M" is read as 530,000, ±5,000 for rounding |
+| Exact match | tolerance 0, or an expected value of 0 | no rounding allowance: "1.3k orders" fails when 1,279 is expected |
+| No tolerance | text answers | the expected word or date must appear (ignoring case and underscores) |
+
+Questions with their own tolerance, where the trap is a small difference:
+
+| Question | Tolerance | Why |
+|---|---|---|
+| trap_01 (net revenue in H1 2026) | 0.00001, about €5 | the trap is one €48.05 order on 1 July |
+| trap_07 (orders in June 2026) | 0, exact | the trap is the 30 June timestamp boundary and the 1 July order |
+| trap_08 (new customers in H1 2026) | 0, exact | the trap is one customer created on 1 July |
+| trap_05 (newsletter ad spend) | exact, because the expected value is 0 | "€0" is right; "no data" or any other number is wrong |
+
+Known leniency:
+- Any number in the answer can match, not only the first, so an answer that lists both gross and net revenue passes a net question. For state_assumption questions the definition still has to be named.
+- The 1% default lets small boundary mistakes pass on non-trap questions; for example 7,698 orders passes when 7,699 is expected. Only the trap questions above catch those.
+- Years 2025–2027 are never read as amounts, so a count that is exactly 2026 can't pass. No golden answer is in that range.
 
 ## Handling the randomness
 
