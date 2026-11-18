@@ -41,6 +41,9 @@
 - Step 3 (golden set) is done: 96 questions (two batches of 48 with the same category mix) in `evals/golden.yaml`. `docker compose run --rm app python scripts/check_golden.py` validates the file and prints every expected answer. Ambiguous questions expect the AI to answer with the default definition and state it (revenue = net); questions too vague for a default expect a clarifying question.
 - Step 4 (agent) works with qwen3:4b: `chat/tools.py` and `chat/agent.py`, a plain LiteLLM tool loop (LangGraph moved to step 7). Questions take 40–150 s each. Start Ollama with `ollama serve` (or `brew services start ollama`) before running it. `python -m chat.tools` self-checks the tools without a key. MetricFlow only generates the SQL; the agent runs it on a read-only DuckDB connection with external access off.
 
+- Step 5 (eval harness) is built: `evals/grade.py`, `evals/run.py`, `evals/report.py`; design in `evals/README.md`. The first full run is still to do.
+- Step 7, first part: `chat/server.py` is an OpenAI-style endpoint (each mode is a "model" in OpenWebUI), and `compose.yaml` has `api` and `webui` services. Not started yet; LangGraph and Langfuse are still to do.
+
 **Not set up yet:** Anthropic API key (needed from step 4).
 
 To run the data step in Docker:

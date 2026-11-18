@@ -54,13 +54,17 @@ def _model_args(model: str, effort: str, temperature: float) -> dict:
 
 
 def ask(question: str, mode: str = "semantic", effort: str = "medium", model: str = MODEL,
-        temperature: float = TEMPERATURE) -> dict:
-    """Answer one question. Returns the answer plus everything the eval harness records."""
+        temperature: float = TEMPERATURE, history: list[dict] | None = None) -> dict:
+    """Answer one question. Returns the answer plus everything the eval harness records.
+
+    history: earlier user/assistant turns of the chat, e.g. the answer to a clarifying question.
+    """
     tool_names, mode_prompt = MODES[mode]
     tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                "parameters": t["input_schema"]}} for t in tool_defs(tool_names)]
     messages: list[dict] = [
         {"role": "system", "content": f"{BASE_PROMPT}\n\n{mode_prompt}"},
+        *(history or []),
         {"role": "user", "content": question},
     ]
     calls: list[dict] = []

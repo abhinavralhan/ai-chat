@@ -17,3 +17,32 @@ services:
       DUCKDB_PATH: /app/data/warehouse.duckdb
       OLLAMA_API_BASE: http://host.docker.internal:11434   # Ollama runs on the Mac, not in Docker
       LITELLM_LOG: ERROR
+
+  # Chat UI: docker compose up api webui, then open http://localhost:3000
+  api:
+    extends: app
+    command: uvicorn chat.server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+  webui:
+    image: ghcr.io/open-webui/open-webui:v0.6.26
+    depends_on: [api]
+    ports:
+      - "3000:8080"
+    volumes:
+      - webui:/app/backend/data
+    environment:
+      OPENAI_API_BASE_URL: http://api:8000/v1
+      OPENAI_API_KEY: unused
+      ENABLE_OLLAMA_API: "false"
+      WEBUI_AUTH: "false"              # local, single user; needs real logins before step 8 goes public
+      AIOHTTP_CLIENT_TIMEOUT: "600"    # one answer can take a few minutes on qwen3:4b
+      # OpenWebUI asks the chat model for titles, tags and suggestions; each would be a full agent run
+      ENABLE_TITLE_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      ENABLE_AUTOCOMPLETE_GENERATION: "false"
+
+volumes:
+  webui:
