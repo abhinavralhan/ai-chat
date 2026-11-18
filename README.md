@@ -4,6 +4,10 @@ Chat with a marketing database in plain English, and measure how often the answe
 
 The project asks one question: does a semantic layer (dbt MetricFlow) make an AI model answer data questions more accurately than letting it write raw SQL? Everything runs locally and for free: a synthetic DuckDB warehouse, a local model through Ollama (qwen3:4b), a chat UI (OpenWebUI) and an eval harness with 96 questions whose correct answers are known.
 
+![Demo: a vague question gets a clarifying question, the answer to it gets the numbers](docs/demo.gif)
+
+*The demo is sped up while the model works; a real answer takes 1–4 minutes on qwen3:4b.*
+
 ## What's inside
 
 - A fictional running-shoe shop, January to June 2026: channels, campaigns, ad spend, 368k sessions, customers and orders. The data is generated (seed 42), so every answer is known. Traps are built in on purpose, e.g. "revenue" can mean net (€525k) or gross (€597k).
@@ -99,6 +103,7 @@ Any model LiteLLM supports works: set `CHAT_MODEL` (e.g. `openrouter/<model>:fre
 | `chat/tracing.py` | Langfuse helpers; a no-op without keys |
 | `evals/` | golden questions, runner, grader, report; design and results in `evals/README.md` |
 | `PLAN.md` | decisions, what's done, the step-by-step plan and the TODO list |
+| `scripts/record_demo.py` | re-records the demo GIF |
 
 ## Status
 
@@ -120,4 +125,4 @@ Common places to change things:
 - Prompt rules: `BASE_PROMPT` in `chat/agent.py`.
 - A new eval question: `evals/golden.yaml`, with reference SQL. Then run `scripts/check_golden.py`.
 
-The repository has no license yet.
+MIT licensed, see [LICENSE](LICENSE).
