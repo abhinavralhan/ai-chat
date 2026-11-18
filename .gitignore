@@ -8,3 +8,5 @@ dbt/logs/
 dbt/dbt_packages/
 dbt/.user.yml
 evals/runs/
+docs/demo_raw/
+docs/demo_last.png
